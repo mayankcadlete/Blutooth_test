@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ESP32 Bluetooth Connect</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  body { font-family: system-ui, Arial, sans-serif; background:#f3f4f6; margin:0; padding:16px; display:flex; justify-content:center; }
+  .card { background:#fff; max-width:440px; width:100%; padding:20px; border-radius:12px; box-shadow:0 2px 10px rgba(0,0,0,.1); }
+  h1 { font-size:20px; margin:0 0 12px; }
+  button { padding:12px 16px; font-size:16px; border:0; border-radius:8px; background:#2563eb; color:#fff; cursor:pointer; }
+  button:disabled { background:#9ca3af; }
+  #status { margin:12px 0; font-weight:600; }
+  #log { background:#111827; color:#d1fae5; font-family:monospace; font-size:13px; height:180px; overflow:auto; padding:8px; border-radius:6px; white-space:pre-wrap; }
+  .row { display:flex; gap:8px; margin-top:10px; }
+  input { flex:1; padding:10px; font-size:15px; border:1px solid #ccc; border-radius:6px; min-width:0; }
+  .gpio { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0 14px; }
+  .gpio button { background:#6b7280; }
+  .gpio button.on { background:#16a34a; }
+  .gpio button:disabled { background:#d1d5db; }
+  #qrSection { margin-top:24px; text-align:center; border-top:1px solid #eee; padding-top:16px; }
+  #qr { display:flex; justify-content:center; margin:10px 0; }
+  .small { font-size:12px; color:#666; word-break:break-all; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>ESP32 Bluetooth Connect</h1>
+  <button id="connect">Connect to ESP32_QR</button>
+  <div id="status">Not connected</div>
+  <b>GPIO control</b>
+  <div class="gpio" id="gpio"></div>
+  <div id="log"></div>
+  <div class="row">
+    <input id="msg" placeholder="Type message to ESP32" disabled>
+    <button id="send" disabled>Send</button>
+  </div>
+
+  <div id="qrSection">
+    <b>QR code of this page</b>
+    <div class="small">Open this page on your PC and scan the QR with your Android phone.</div>
+    <div id="qr"></div>
+    <div class="small" id="url"></div>
+  </div>
+</div>
+
+<script>
+  const NUS_SERVICE = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+  const NUS_RX      = '6e400002-b5a3-f393-e0a9-e50e24dcca9e'; // write to ESP32
+  const NUS_TX      = '6e400003-b5a3-f393-e0a9-e50e24dcca9e'; // notifications from ESP32
+
+  let device, rxChar;
+  const logEl = document.getElementById('log');
+  const statusEl = document.getElementById('status');
+  const connectBtn = document.getElementById('connect');
+  const sendBtn = document.getElementById('send');
+  const msgEl = document.getElementById('msg');
+
+  function log(t) { logEl.textContent += t + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+  function setConnected(on) {
+    statusEl.textContent = on ? 'Connected to ' + device.name : 'Not connected';
+    statusEl.style.color = on ? '#059669' : '#000';
+    sendBtn.disabled = msgEl.disabled = !on;
+    document.querySelectorAll('.gpio button').forEach(b => { b.disabled = !on; if (!on) b.classList.remove('on'); });
+    connectBtn.textContent = on ? 'Disconnect' : 'Connect to ESP32_QR';
+  }
+
+  async function connect() {
+    if (!navigator.bluetooth) {
+      alert('Web Bluetooth is not supported. Use Chrome on Android, and open this page over https://');
+      return;
+    }
+    try {
+      device = await navigator.bluetooth.requestDevice({
+        filters: [{ namePrefix: 'ESP32_QR' }],
+        optionalServices: [NUS_SERVICE]
+      });
+      device.addEventListener('gattserverdisconnected', () => { setConnected(false); log('Disconnected'); });
+      statusEl.textContent = 'Connecting...';
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(NUS_SERVICE);
+      rxChar = await service.getCharacteristic(NUS_RX);
+      const txChar = await service.getCharacteristic(NUS_TX);
+      await txChar.startNotifications();
+      txChar.addEventListener('characteristicvaluechanged', e => {
+        const text = new TextDecoder().decode(e.target.value);
+        log('ESP32: ' + text);
+        const m = text.match(/^OK (\d+):([01])$/);   // confirmation from ESP32
+        if (m) {
+          const b = document.getElementById('pin' + m[1]);
+          if (b) b.classList.toggle('on', m[2] === '1');
+        }
+      });
+      setConnected(true);
+      log('Connected');
+    } catch (err) {
+      log('Error: ' + err.message);
+      setConnected(false);
+    }
+  }
+
+  async function send() {
+    const text = msgEl.value;
+    if (!text || !rxChar) return;
+    await rxChar.writeValue(new TextEncoder().encode(text));
+    log('Me: ' + text);
+    msgEl.value = '';
+  }
+
+  connectBtn.addEventListener('click', () => {
+    if (device && device.gatt.connected) device.gatt.disconnect(); else connect();
+  });
+  // GPIO buttons - must match OUTPUT_PINS in the Arduino sketch
+  const PINS = [2, 27];
+  PINS.forEach(pin => {
+    const b = document.createElement('button');
+    b.id = 'pin' + pin;
+    b.textContent = pin === 27 ? 'UNLOCK (GPIO27)' : 'GPIO' + pin + (pin === 2 ? ' (LED)' : '');
+    b.disabled = true;
+    b.addEventListener('click', async () => {
+      if (!rxChar) return;
+      if (pin === 27) {                      // lock: always one short unlock pulse
+        await rxChar.writeValue(new TextEncoder().encode('27:1'));
+        log('Me: unlock');
+        return;
+      }
+      const turnOn = !b.classList.contains('on');
+      await rxChar.writeValue(new TextEncoder().encode(pin + ':' + (turnOn ? 1 : 0)));
+      log('Me: GPIO' + pin + (turnOn ? ' ON' : ' OFF'));
+    });
+    document.getElementById('gpio').appendChild(b);
+  });
+
+  sendBtn.addEventListener('click', send);
+  msgEl.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+
+  // QR of this page's own URL
+  const url = window.location.href;
+  document.getElementById('url').textContent = url;
+  new QRCode(document.getElementById('qr'), { text: url, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+</script>
+</body>
+</html>
