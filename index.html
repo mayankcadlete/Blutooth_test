@@ -71,7 +71,7 @@
     document.getElementById('gen').addEventListener('click', () => {
       const id  = document.getElementById('idIn').value.trim();
       const key = document.getElementById('keyIn').value.trim();
-      if (!/^[A-Za-z0-9]{3,8}$/.test(id))   { alert('Device ID: 3-8 letters/numbers'); return; }
+      if (!/^[A-Za-z0-9_-]{3,20}$/.test(id)) { alert('Device ID: 3-20 letters, numbers, _ or -'); return; }
       if (!/^[A-Za-z0-9]{6,12}$/.test(key)) { alert('Key: 6-12 letters/numbers'); return; }
       const link = location.origin + location.pathname + '#id=' + encodeURIComponent(id) + '&key=' + encodeURIComponent(key);
       const qr = document.getElementById('qr');
@@ -87,7 +87,7 @@
   function startControl() {
     document.getElementById('control').classList.remove('hidden');
 
-    const NAME = 'ESP32_' + ID;                 // only this exact device matches
+    const NAME = ID;                 // only this exact device matches
     let device, rxChar;
     const logEl = document.getElementById('log');
     const statusEl = document.getElementById('status');
