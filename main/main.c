@@ -8,7 +8,8 @@
   - GPIO2  = onboard LED   (command 2:1 / 2:0)
   - GPIO27 = relay -> lock (command 27:1 = one short unlock pulse)
 
-  Use the SAME DEVICE_ID and SECRET_KEY as the ones in your QR code.
+  DEVICE_ID and SECRET_KEY are set in device_config.json - use the SAME
+  values in your QR code.
 */
 
 #include <stdio.h>
@@ -32,12 +33,13 @@
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
 
-// ---------- CHANGE THESE TWO ----------
-#define DEVICE_ID   "A7K3"        // 3-8 letters/numbers
-#define SECRET_KEY  "k7Q2xM9p"    // 6-12 letters/numbers
-// --------------------------------------
+// DEVICE_ID and SECRET_KEY come from device_config.json (project root).
+// main/CMakeLists.txt reads that file at build time - do NOT edit them here.
+#if !defined(DEVICE_ID) || !defined(SECRET_KEY)
+#error "DEVICE_ID / SECRET_KEY not set - check device_config.json and main/CMakeLists.txt"
+#endif
 
-#define DEVICE_NAME "ESP32_" DEVICE_ID
+#define DEVICE_NAME DEVICE_ID
 
 #define LED_PIN              2
 #define LOCK_PIN             27
